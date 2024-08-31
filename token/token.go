@@ -22,6 +22,7 @@ const (
 
 	// Delimiters
 	COMMA     = ","
+	COLON     = ":"
 	SEMICOLON = ";"
 	MINUS     = "-"
 	BANG      = "!"
