@@ -8,13 +8,15 @@ import (
 )
 
 const StackSize = 2048
+const GlobalsSize = 65536
 
 type VM struct {
 	constants    []object.Object
 	instructions code.Instructions
 
-	stack []object.Object
-	sp    int // Always points to the next value. Top os stack is stack[sp-1]
+	stack   []object.Object
+	sp      int // Always points to the next value. Top os stack is stack[sp-1]
+	globals []object.Object
 }
 
 func New(bytecode *compiler.ByteCode) *VM {
@@ -22,9 +24,16 @@ func New(bytecode *compiler.ByteCode) *VM {
 		instructions: bytecode.Instructions,
 		constants:    bytecode.Constants,
 
-		stack: make([]object.Object, StackSize),
-		sp:    0,
+		stack:   make([]object.Object, StackSize),
+		sp:      0,
+		globals: make([]object.Object, GlobalsSize),
 	}
+}
+
+func NewWithGlobalStore(bytecode *compiler.ByteCode, s []object.Object) *VM {
+	vm := New(bytecode)
+	vm.globals = s
+	return vm
 }
 
 func (vm *VM) Run() error {
@@ -75,6 +84,39 @@ func (vm *VM) Run() error {
 
 		case code.OpBang:
 			err := vm.executeBangOperator()
+			if err != nil {
+				return err
+			}
+
+		case code.OpJump:
+			pos := int(code.ReadUint16(vm.instructions[ip+1:]))
+			ip = pos - 1
+
+		case code.OpJumpNotTruthy:
+			pos := int(code.ReadUint16(vm.instructions[ip+1:]))
+			ip += 2
+
+			condition := vm.pop()
+			if !isTruthy(condition) {
+				ip = pos - 1
+			}
+		case code.OpNull:
+			err := vm.push(Null)
+			if err != nil {
+				return err
+			}
+
+		case code.OpSetGlobal:
+			globalIndex := code.ReadUint16(vm.instructions[ip+1:])
+			ip += 2
+
+			vm.globals[globalIndex] = vm.pop()
+
+		case code.OpGetGlobal:
+			globalIndex := code.ReadUint16(vm.instructions[ip+1:])
+			ip += 2
+
+			err := vm.push(vm.globals[globalIndex])
 			if err != nil {
 				return err
 			}
@@ -181,6 +223,8 @@ func (vm *VM) executeBangOperator() error {
 		return vm.push(False)
 	case False:
 		return vm.push(True)
+	case Null:
+		return vm.push(True)
 	default:
 		return vm.push(False)
 	}
@@ -191,6 +235,20 @@ func nativeBoolToBooleanObject(input bool) *object.Boolean {
 		return True
 	}
 	return False
+}
+
+func isTruthy(obj object.Object) bool {
+	switch obj := obj.(type) {
+
+	case *object.Boolean:
+		return obj.Value
+
+	case *object.Null:
+		return false
+
+	default:
+		return true
+	}
 }
 
 func (vm *VM) push(o object.Object) error {
@@ -222,3 +280,4 @@ func (vm *VM) LastPoppedStackElem() object.Object {
 
 var True = &object.Boolean{Value: true}
 var False = &object.Boolean{Value: false}
+var Null = &object.Null{}
